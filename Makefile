@@ -6,15 +6,14 @@
 #
 
 src=./src
+inc=./inc
 bin=./bin
-inc=../inc
-lib=../lib
 output=$(bin)/TIINV.8xp
 
 all: $(output)
 
 $(output): $(src)/main.z80 $(src)/* $(bin)
-	spasm -N -I $(inc) -I $(lib) -I $(src) $< $@
+	spasm -N -I $(inc) -I $(src) $< $@
 
 $(bin):
 	mkdir -vp $(bin)

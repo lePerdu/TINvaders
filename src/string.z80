@@ -1,0 +1,57 @@
+; string.z80
+
+#ifndef _STRING_Z80
+#define _STRING_Z80
+
+; Converts length-byte-prefixed string to a
+; null-byte-terminated string
+; (hl) = string to convert
+to_nbts:
+    push hl		; save location
+    ld a, (hl)	; bc = length
+    ld b, 0
+    ld c, a
+    ld d, h
+    ld e, l
+    inc hl		; move past length byte
+    ldir
+    xor a		; a = 0 = null char
+    ld (de), a
+    pop hl
+    ret
+
+
+; Converts a 16-bit integer to a length-byte-prefixed string
+; in unsigned decimal of length 5, padded with zeros
+; de = 16-bit integer
+; (hl) = string
+to_str_udec16:
+    ld b, 0		; counter
+    ld c, 5
+    add hl, bc	;start input at end of string
+_ud16_str_div_10:
+    xor a
+    ld b, 16
+_ud16_str_div_loop:
+    sla e
+    rl d
+    rla
+    jr c, _ud16_str_overflow
+    cp 10
+    jr c, _ud16_str_skip
+_ud16_str_overflow:
+    sub 10
+    inc e
+_ud16_str_skip:
+    djnz _ud16_str_div_loop
+; a = remainder, de = quotient
+    add a, '0'	; convert to ASCII
+    ld (hl), a
+    dec hl
+    dec c
+    jr nz, _ud16_str_div_10
+    ld (hl), 5
+    ret
+
+#endif ;_STRING_Z80
+

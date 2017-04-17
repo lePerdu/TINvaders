@@ -14,20 +14,6 @@
 .org userMem - 2
 .db t2ByteTok, tAsmCmp
 
-    jp main
-#include "menu.z80"
-
-#include "string.z80"
-#include "graphics.z80"
-
-#include "game.z80"
-#include "scoreboard.z80"
-#include "name_input.z80"
-#include "sprite.z80"
-#include "cannon.z80"
-#include "invader.z80"
-#include "level.z80"
-
 main:
     BCALL(_runIndicOff)
     xor a ; so that the MSB of r is 0 for random numbers
@@ -63,4 +49,16 @@ quit:
     set exit_flag, (iy + TIINV_FLAGS)
     ret
 
+#include "cannon.z80"
+#include "game.z80"
+#include "graphics.z80"
+#include "invader.z80"
+#include "level.z80"
+#include "menu.z80"
+#include "name_input.z80"
+#include "scoreboard.z80"
+#include "sprite.z80"
+#include "string.z80"
+
 .end
+

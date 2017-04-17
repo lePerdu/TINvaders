@@ -1,0 +1,291 @@
+; graphics.z80
+
+#ifndef _GRAPHICS_Z80
+#define _GRAPHICS_Z80
+
+SCREEN_WIDTH .equ 96
+SCREEN_HEIGHT .equ 64
+
+LCD_COM_PORT .equ $10
+LCD_DAT_PORT .equ $11
+
+LCD_CONTRAST .equ $C0
+TIOS_CONTRAST .equ $D8
+
+; Performs fast_copy from the normal screen buffer: plotSScreen
+fast_copy_pss:
+    ld hl, plotSScreen
+
+; Copies data from a screen buffer in ram to the LCD
+; hl = screen buffer
+fast_copy:
+	ld a, $80
+	out (LCD_COM_PORT), a
+	ld de, 0 - 12 - (1 - (12 * 64))
+    add hl, de
+	ld a, $20
+	ld c, a
+	inc hl
+	dec hl
+_fcpy_again:
+	ld b, 64
+	inc c
+	ld de, 1 - (12 * 64)
+	out (LCD_COM_PORT), a
+	add hl, de
+	ld de, 10
+_fcpy_loop:
+	add hl, de
+	inc hl
+	inc hl
+	inc de
+	ld a, (hl)
+	out (LCD_DAT_PORT), a
+	dec de
+	djnz _fcpy_loop
+	ld a, c
+	cp $2b + 1
+	jr nz, _fcpy_again
+	ret
+
+
+safe_copy_pss:
+    ld hl, plotSScreen
+
+; Copies data from a screen buffer in ram to the LCD
+; hl = screen buffer
+safe_copy:
+	di
+	ld c, LCD_COM_PORT
+	ld a, $80
+_scpy_set_row:
+	in f, (c)
+	jp m, _scpy_set_row
+	out (c), a
+	ld de, 12
+	ld a, $20
+_scpy_col:
+	in f, (c)
+	jp m, _scpy_col
+	out (c), a
+	push af
+	ld b, SCREEN_HEIGHT
+_scpy_row:
+	ld a, (hl)
+_scpy_row_wait:
+	in f, (c)
+	jp m, _scpy_row_wait
+	out (LCD_DAT_PORT), a
+	add hl, de
+	djnz _scpy_row
+	pop af
+	dec h
+	dec h
+	dec h
+	inc hl
+	inc a
+	cp $2c
+	jr nz, _scpy_col
+	ret
+
+
+; Calculates the byte offset and bitmask for a pixel with given row and column
+; d = column
+; e = row
+; ret hl = byte offset, a = bitmask
+; preserves bc
+get_pixel:
+    ld a, d
+    ; hl = 12 * row
+    ld h, 0
+    ld d, h
+    ld l, e
+    add hl, hl
+    add hl, de
+    add hl, hl
+    add hl, hl
+    ; add col / 8, but save col
+    ld d, 0
+    ld e, a
+    srl e
+    srl e
+    srl e
+    add hl, de
+    ; bit number = col % 8
+    and 7
+    ; bitmask = %10000000 >> bit number
+    ld d, a ; use d as counter to perserve b[c]
+    ld a, %10000000
+    ; if bit number = 0, finished
+    ret z
+    ; else
+_get_pixel_loop:
+    srl a
+    dec d
+    jr nz, _get_pixel_loop
+    ret
+
+
+test_pixel_pss:
+    ld hl, plotSScreen
+
+; Tests whether a specified pixel is turned on.
+; d = column
+; e = row
+; hl = screen buffer
+; ret = nz if the pixel is set; z otherwise
+; preserves bc
+test_pixel:
+    push hl
+        call get_pixel
+    pop de
+    add hl, de
+    and (hl)
+    ret
+
+
+; Copies a sprite 8px wide into the graphics buffer.
+; The sprite is combined using logical xor with
+; the existing information in the graphics buffer.
+; The sprite is clipped so that the sprite does not
+; bleed over into the other side of the screen or into
+; memory outside of the graphics buffer.
+; d = x (px)
+; e = y (px)
+; b = height of sprite (px)
+; (ix) = the sprite to copy
+put_sprite_xor:
+	ld a, %11111111 ; default with no clip
+	ld (__clip_mask__), a
+_psx_clip_vert:
+	ld a, e
+	or a
+	jp m, _psx_clip_top
+
+_psx_clip_bottom:
+	sub SCREEN_HEIGHT ; check if off screen
+	ret nc
+	; else
+	neg					; 64 - y
+	cp b				; if far enough away from bottom
+	jr nc, _psx_clip_vert_end
+
+	ld b, a				; set lines to display to 62 - y
+	jr _psx_clip_vert_end
+
+_psx_clip_top:
+	ld a, b				; check if off screen
+	neg
+	sub e				; e is negative
+	ret nc
+
+	push af
+	add a, b			; number of rows to clip
+	ld e, 0				; start at top of screen
+	ld b, e				; move sprite begining
+	ld c, a
+	add ix, bc
+	pop af
+	neg					; rows = - (-init_rows - y) = init_rows + y
+	ld b, a
+_psx_clip_vert_end:
+_psx_clip_horiz:
+	ld a, d				; if -7 <= x < 0
+	cp -7
+	jr nc, _psx_clip_left
+	cp SCREEN_WIDTH		; if x > 96, off screen
+	ret nc
+	cp SCREEN_WIDTH - 7 ; if x < 89
+	jr c, _psx_clip_horiz_end
+	; else jr _clip_horiz_right
+_psx_clip_horiz_right:
+	and 7				; find mask offset
+	ld c, a
+	ld a, %11111111
+_psx_clip_right_mask:
+	;srl a
+	add a, a
+	dec c
+	jr nz, _psx_clip_right_mask
+	ld (__clip_mask__), a	; save for later
+	jr _psx_clip_horiz_end
+
+_psx_clip_left:
+	and 7				; find mask offset
+	ld c, a
+	ld a, %11111111
+_psx_clip_left_mask:
+	;sll a = neg(2 * a)
+	add a, a
+	dec c
+	jr nz, _psx_clip_left_mask
+	ld (__clip_mask__), a	; save mask
+	; jr _clip_horiz_end
+
+_psx_clip_horiz_end:
+_psx_put_sprite:
+	ld a, d
+	; find offset bytes of initial position
+	ld h, 0				; hl = 12 * y
+	ld d, h
+	ld l, e
+	add hl, hl
+	add hl, de
+	add hl, hl
+	add hl, hl
+	ld d, 0				; add x / 8, but save x in a
+	ld e, a
+	srl e
+	srl e
+	srl e
+	add hl, de
+	ld de, plotSScreen	; align to screen buffer
+	add hl, de
+	and 7				; bit offset = x % 8
+	ld de, 12			; to be added to hl for next line
+	; if offset = 0
+	jr z, _psx_put_sprite_aligned
+	; else
+	ld c, a				; save offset
+	dec de				; because hl is incremented, only add 11
+
+_psx_put_sprite_row:		; for each row in the sprite
+	push bc				; counter and offset
+	ld b, c				; counter for shift loop
+	ld a, (__clip_mask__)
+	and (ix)
+	ld c, 0
+
+_psx_put_sprite_shift:
+	srl a				; move right part from a to c
+	rr c
+	djnz _psx_put_sprite_shift
+
+	xor (hl)			; left part
+	ld (hl), a
+	inc hl
+	ld a, c
+	xor (hl)
+	ld (hl), a
+
+	add hl, de
+	inc ix
+	pop bc
+	djnz _psx_put_sprite_row
+	ret
+
+_psx_put_sprite_aligned:
+	ld a, (__clip_mask__)
+	and (ix)
+	xor (hl)
+	ld (hl), a
+	add hl, de
+	inc ix
+	djnz _psx_put_sprite_aligned
+	ret
+
+__clip_mask__:
+	.db %11111111	; no effect as is
+
+#endif ; _GRAPHICS_Z80
+
