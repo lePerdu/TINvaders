@@ -45,8 +45,11 @@ level_up:
 
 	; increase shot probability
 	ld a, (invade_shot_prob)
-	inc a
+    add a, INVADE_SHOT_PROB_INC
+    cp INVADE_MAX_SHOT_PROB
+    jr nc, _lu_no_inc_shot_prob
 	ld (invade_shot_prob), a
+_lu_no_inc_shot_prob:
 	
 	; increase movement period to 1 less than that of the last level
 	; amount decreased over the level = rows * cols / num_per_inc

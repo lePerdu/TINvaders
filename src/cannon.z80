@@ -14,7 +14,7 @@ NUM_CANNON_SHOTS .equ 54
 CANNON_SHOT_END .equ CANNON_SHOT_START + (2 * NUM_CANNON_SHOTS)
 
 ; number of frames between each update of the shots
-CANNON_SHOT_TIME .equ 20
+CANNON_SHOT_TIME .equ 25
 
 CANNON_DEAD_TIME .equ 50
 
