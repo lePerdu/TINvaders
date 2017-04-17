@@ -1,0 +1,215 @@
+;
+; level.z80
+;
+; Copyright (c) 2017 Zach Peltzer
+; Subject to the MIT License
+;
+
+INIT_LIVES .equ 3
+
+INVADE_BOX_Y .equ 8
+
+LEVEL_SCORE_X .equ 1
+LEVEL_SCORE_Y .equ 1
+
+lives:
+	.db INIT_LIVES
+score:
+	.dw 0
+
+str_score_buf:
+	.db "00000", 0
+
+
+level_reset:
+	ld a, INIT_LIVES
+	ld (lives), a
+	ld hl, 0
+	ld (score), hl
+
+	xor a
+	ld (invade_num_det), a
+
+	; reset invader stats
+	ld a, INVADE_INIT_SHOT_PROB
+	ld (invade_shot_prob), a
+	ld a, INVADE_INIT_MOVE_PERIOD
+	ld (invade_move_period), a
+	ret
+
+level_up:
+	call cannon_reset
+
+	xor a
+	ld (invade_num_det), a
+
+	; increase shot probability
+	ld a, (invade_shot_prob)
+	inc a
+	ld (invade_shot_prob), a
+	
+	; increase movement period to 1 less than that of the last level
+	; amount decreased over the level = rows * cols / num_per_inc
+	; so increase the period by rows * cols / num_per_inc - 1
+	ld a, (invade_move_period)
+	ld c, INVADE_NUM_ROW * INVADE_NUM_COL / INVADE_DET_PER_INC - 1 - 1
+	add a, c
+	ld (invade_move_period), a
+	;call level_start
+	;ret
+
+
+level_start:
+	ld a, INVADE_INIT_X
+	ld (invade_pos_x), a
+	ld a, INVADE_INIT_DX
+	ld (invade_dir_x), a
+	xor a
+	ld (invade_frame), a
+	ld hl, INVADE_POS_START
+	ld (invade_pos_index), hl
+
+	ld e, INVADE_BOX_Y
+	ld d, 3
+_linit_invade1_loop:
+	ld ix, invader1
+	push de
+	call invade_new
+	pop de
+	ld a, 10
+	add a, d
+	ld d, a
+	cp 83
+	jr nz, _linit_invade1_loop
+
+	ld e, 2 * INVADE_BOX_Y
+	ld d, 2
+_linit_invade2_loop:
+	ld ix, invader2
+	push de
+	call invade_new
+	pop de
+	ld a, 10
+	add a, d
+	ld d, a
+	cp 82
+	jr nz, _linit_invade2_loop
+
+	; 2 rows of invader3's
+	ld d, 1
+_linit_invade3_loop:
+	ld e, 3 * INVADE_BOX_Y
+	ld ix, invader3
+	push de
+	call invade_new
+	pop de
+	ld e, 4 * INVADE_BOX_Y
+	push de
+	call invade_new
+	pop de
+	ld a, 10
+	add a, d
+	ld d, a
+	cp 81
+	jr nz, _linit_invade3_loop
+
+	;call level_lives_render
+	;ret
+	jp level_lives_render
+	
+
+level_lose_life:
+	ld a, CANNON_DEAD_TIME
+	ld (cannon_dead_timer), a
+	set cannon_dead_flag, (iy + TIINV_FLAGS)
+
+	; lives is decremented in level_new_cannon
+	ld a, (lives)
+	or a
+	ret nz
+	; else game_over
+level_game_over:
+	set game_over_flag, (iy + TIINV_FLAGS)
+	ret
+
+
+; (hl) = invader sprite to add points from
+level_add_points:
+	inc hl ; move past width byte
+	ld a, (hl)
+	ld hl, (score)
+	add a, l ; add points to score
+	ld l, a
+	ld a, 0
+	adc a, h
+	ld h, a
+	ld (score), hl
+
+	call level_score_render
+
+	; since this is when invaders are destroyed, check if all have been
+	ld a, (invade_num_det)
+	cp INVADE_NUM_ROW * INVADE_NUM_COL
+	call z, level_up
+_level_add_points_end:
+	ret
+
+level_score_render:
+	ld hl, LEVEL_SCORE_Y * $100 + LEVEL_SCORE_X
+	ld (penCol), hl
+	ld de, (score)
+	ld hl, str_score_buf
+	call to_str_udec16
+	call to_nbts
+	set textWrite, (iy + sGrFlags)
+	BCALL(_vPutS)
+	ret
+
+
+level_lives_render:
+	; clear out header
+	ld hl, plotSScreen
+	ld (hl), 0
+	ld d, h
+	ld e, l
+	inc de
+	ld bc, HEADER_HEIGHT * 12
+	ldir
+
+	; draw lives
+	ld a, (lives)
+	ld b, a
+	ld d, 96 - MINI_CANNON_WIDTH - 1
+	ld e, 1
+	ld ix, mini_cannon_sprite
+_levr_loop:
+	push bc
+	push de
+	push ix
+	ld b, MINI_CANNON_HEIGHT
+	call put_sprite_xor
+	pop ix
+	pop de
+	ld a, -8
+	add a, d
+	ld d, a
+	pop bc
+	djnz _levr_loop
+
+	;call level_score_render
+	;ret
+	jp level_score_render
+
+
+level_new_cannon:
+	ld a, (lives) ; since the cannon is taken from the store of lives
+	dec a
+	ld (lives), a
+	call level_lives_render
+
+	call cannon_reset
+	
+	;call invade_shots_clear
+	;ret
+	jp invade_shots_clear
+

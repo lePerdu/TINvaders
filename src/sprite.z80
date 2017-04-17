@@ -1,0 +1,113 @@
+;
+; sprite.z80
+;
+; Copyright (c) 2017 Zach Peltzer
+; Subject to the MIT License
+;
+
+SPRITE_HEIGHT .equ 6
+
+MINI_CANNON_WIDTH .equ 5
+MINI_CANNON_HEIGHT .equ 3
+
+
+; d = x
+; e = y
+; (ix) = Sprite structure
+; c = data offset
+si_put_sprite:
+	inc ix ; move past width byte and point byte
+	inc ix
+	ld b, 0
+	add ix, bc ; add offset
+	ld b, SPRITE_HEIGHT
+	;ret
+	jp put_sprite_xor
+
+
+mini_cannon_sprite:
+	.db %00100000
+	.db %11111000
+	.db %11111000
+
+
+cannon_sprite:
+cannon_sprite_width:
+	.db 7
+cannon_sprite_points:
+	.db 0 ; placeholder
+cannon:
+	.db %00010000
+	.db %00111000
+	.db %11111110
+	.db %11111110
+	.db %00000000
+	.db %00000000
+cannon_dead:
+	.db %00000000
+	.db %00001000
+	.db %10101110
+	.db %11111100
+	.db %00000000
+	.db %00000000
+
+invader1:
+invader1_width:
+	.db 5
+invader1_points:
+	.db 40
+invader11:
+	.db %00100000
+	.db %01110000
+	.db %10101000
+	.db %01110000
+	.db %10001000
+	.db %00000000
+invader12:
+	.db %00100000
+	.db %01110000
+	.db %10101000
+	.db %01110000
+	.db %01010000
+	.db %00000000
+
+invader2:
+invader2_width:
+	.db 6
+invader2_points:
+	.db 20
+invader21:
+	.db %10000100
+	.db %01001000
+	.db %10110100
+	.db %11111100
+	.db %10000100
+	.db %01001000
+invader22:
+	.db %10000100
+	.db %01001000
+	.db %10110100
+	.db %11111100
+	.db %10110100
+	.db %00000000
+
+invader3:
+invader3_width:
+	.db 8
+invader3_points:
+	.db 10
+invader31:
+	.db %00011000
+	.db %01111110
+	.db %11011011
+	.db %01111110
+	.db %00100100
+	.db %01000010
+invader32:
+	.db %00011000
+	.db %01111110
+	.db %11011011
+	.db %01111110
+	.db %00100100
+	.db %00011000
+

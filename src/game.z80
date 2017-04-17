@@ -1,0 +1,173 @@
+;
+; game.z80
+;
+; Copyright (c) 2017 Zach Peltzer
+; Subject to the MIT License
+;
+
+GAME_OVER_X .equ 32
+GAME_OVER_Y .equ 29
+GAME_OVER_TIME .equ 70
+
+game_over_timer:
+	.db GAME_OVER_TIME
+
+str_game_over:
+	.db "GAME OVER", 0
+
+; updated every frame with r, generating a pseudo random number
+rand:
+	.db 0
+
+game_contrast:
+	.db 0
+
+
+game_start:
+	di
+	ld a, (contrast)
+	add a, TIOS_CONTRAST - LCD_CONTRAST
+	ld (game_contrast), a
+
+	ld a, GAME_OVER_TIME
+	ld (game_over_timer), a
+
+	; fill appBackUpScreen with DEAD_POS to hold shots and sprites
+	ld hl, CANNON_SHOT_START
+	ld (hl), DEAD_POS
+	ld d, h
+	ld e, l
+	inc de
+	ld bc, INVADE_SHOT_END - CANNON_SHOT_START - 1
+	ldir
+
+	BCALL(_clrScrnFull)
+	BCALL(_grBufClr)
+
+	call cannon_reset
+	call cannon_shots_clear
+	call invade_reset
+	call invade_shots_clear
+	call level_reset
+	call level_start
+	;jp game_loop
+
+
+game_loop:
+_g_get_input:
+	; check the exit flag
+	bit exit_flag, (iy + TIINV_FLAGS)
+	jp nz, game_done
+
+	IS_KEY_DOWN(GROUP6, KEY_CLEAR)
+	jp z, game_quit
+	
+	IS_KEY_DOWN(GROUP7, KEY_RIGHT)
+	call z, cannon_move_right
+
+	IS_KEY_DOWN(GROUP7, KEY_LEFT)
+	call z, cannon_move_left
+
+	IS_KEY_DOWN(GROUP1, KEY_2ND)
+	call z, cannon_fire
+
+	;jr update
+
+_g_update:
+	; update cannon_shot_timer
+	ld a, (cannon_shot_timer)
+	cp 0
+	jr z, _g_update_timer_end
+	dec a
+	ld (cannon_shot_timer), a
+_g_update_timer_end:
+
+	; update rand
+	ld a, r
+	ld c, a
+	ld a, (rand)
+	add a, c
+	ld (rand), a
+
+	call cannon_update
+	call cannon_shot_update
+	call invade_update
+	call invade_shot_update
+
+	;jr render
+	
+_g_render:
+	; clear all but the top 10 rows
+	ld hl, plotSScreen + ((HEADER_HEIGHT - 1) * 12)
+	ld d, h
+	ld e, l
+	inc de
+	ld (hl), 0
+	ld bc, 768 - (HEADER_HEIGHT * 12) - 1
+	ldir
+
+	call cannon_shot_render
+	call cannon_render
+	call invade_render
+	call invade_shot_render
+
+	bit game_over_flag, (iy + TIINV_FLAGS)
+	jr z, _g_render_no_game_over
+
+_g_render_game_over:
+	ld hl, GAME_OVER_Y * $100 + GAME_OVER_X
+	ld (penCol), hl
+	ld hl, str_game_over
+	BCALL(_vPutS)
+
+	ld a, (game_over_timer)
+	cp 2 * GAME_OVER_TIME / 3 ; no contrast change for the first 1/3
+	jr nc, _gr_contrast_dec_end
+
+	ld a, (game_contrast)
+	or a
+	jr z, _gr_contrast_dec_end
+	dec a
+	ld (game_contrast), a
+	add a, LCD_CONTRAST
+	;call LCD_BUSY_QUICK not necessary
+	out (LCD_COM_PORT), a
+_gr_contrast_dec_end:
+
+	ld a, (game_over_timer)
+	dec a
+	ld (game_over_timer), a
+	jr nz, _g_render_no_game_over ; keep going
+
+	jr game_done
+	
+_g_render_no_game_over:
+
+	call safe_copy_pss
+
+	jp game_loop
+
+
+game_done:
+	; put back contrast
+	BCALL(_grBufClr)
+	call safe_copy_pss
+	ld a, (contrast)
+	add a, TIOS_CONTRAST
+	out (LCD_COM_PORT), a
+	call scoreboard_check
+
+	ret nc ; back to menu if score not added
+	;call scoreboard_display
+	;ret
+	jp scoreboard_display
+
+
+game_quit:
+	set exit_flag, (iy + TIINV_FLAGS)
+	call LCD_BUSY_QUICK
+	ld a, (contrast)
+	add a, TIOS_CONTRAST
+	out (LCD_COM_PORT), a
+	ret
+

@@ -1,0 +1,165 @@
+;
+; name_input.z80
+;
+; Copyright (c) 2017 Zach Peltzer
+; Subject to the MIT License
+;
+
+; coordinates in home screen
+NM_IPT_CHAR_Y .equ 25
+NM_IPT_ARROW_UP_Y .equ NM_IPT_CHAR_Y - 4
+NM_IPT_ARROW_DOWN_Y .equ NM_IPT_CHAR_Y + 8
+NM_IPT_X .equ 39
+NM_IPT_CHAR_WIDTH .equ 7
+NM_IPT_ARROW_HEIGHT .equ 3
+
+NM_IPT_LEN .equ 3
+
+name_input_index:
+	.db 0
+
+name_input_buf:
+	.db "AAA", 0
+
+name_input_arrow_up:
+	.db %00100000
+	.db %01110000
+	.db %11111000
+
+name_input_arrow_down:
+	.db %11111000
+	.db %01110000
+	.db %00100000
+
+name_input:
+	BCALL(_grBufClr)
+	set fracDrawLFont, (iy + fontFlags)
+	xor a
+	ld (name_input_index), a
+	ld a, 'A'
+	ld (name_input_buf), a
+	ld (name_input_buf+1), a
+	ld (name_input_buf+2), a
+
+	call ni_render_arrows ; not in loop
+_name_input_loop:
+	; draw name
+	ld hl, name_input_buf
+	ld de, NM_IPT_CHAR_Y * $100 + NM_IPT_X
+	ld (penCol), de
+	BCALL(_vPutS)
+	call safe_copy_pss
+
+	BCALL(_getKey)
+	cp kUp
+	jr z, name_input_inc_char
+	cp kDown
+	jr z, name_input_dec_char
+	cp kLeft
+	jr z, name_input_move_left
+	cp kRight
+	jr z, name_input_move_right
+	cp kEnter
+	jr z, name_input_confirm
+	jr _name_input_loop
+
+	jr name_input_done
+
+
+name_input_inc_char:
+	ld hl, name_input_buf
+	ld a, (name_input_index)
+	add a, l
+	ld l, a
+	ld a, 0
+	adc a, h
+	ld h, a
+	ld a, (hl)
+	cp 'Z'
+	jp nz, _niic_norm
+	ld a, 'A' - 1
+_niic_norm:
+	inc a
+	ld (hl), a
+	jp _name_input_loop
+
+
+name_input_dec_char:
+	ld hl, name_input_buf
+	ld a, (name_input_index)
+	add a, l
+	ld l, a
+	ld a, 0
+	adc a, h
+	ld h, a
+	ld a, (hl)
+	cp 'A'
+	jp nz, _nidc_norm
+	ld a, 'Z' + 1
+_nidc_norm:
+	dec a
+	ld (hl), a
+	jp _name_input_loop
+
+
+name_input_move_left:
+	ld a, (name_input_index)
+	cp 0
+	jp z, _name_input_loop
+	call ni_render_arrows
+	ld a, (name_input_index)
+	dec a
+	ld (name_input_index), a
+	call ni_render_arrows
+	jp _name_input_loop
+
+
+name_input_move_right:
+	ld a, (name_input_index)
+	cp NM_IPT_LEN - 1
+	jp z, _name_input_loop
+	call ni_render_arrows
+	ld a, (name_input_index)
+	inc a
+	ld (name_input_index), a
+	call ni_render_arrows
+	jp _name_input_loop
+
+
+name_input_confirm:
+	;jp name_input_done
+
+
+name_input_done:
+	res fracDrawLFont, (iy + fontFlags)
+	ret
+
+ni_render_arrows:
+	ld e, NM_IPT_ARROW_UP_Y
+	ld d, NM_IPT_X
+	ld a, (name_input_index)
+	sla a ; NM_IPT_CHAR_WIDTH = 7
+	ld c, a
+	sla a
+	add a, c
+	add a, d
+	ld d, a
+	ld ix, name_input_arrow_up
+	ld b, NM_IPT_ARROW_HEIGHT
+	call put_sprite_xor
+
+	ld e, NM_IPT_ARROW_DOWN_Y
+	ld d, NM_IPT_X
+	ld a, (name_input_index)
+	sla a ; NM_IPT_CHAR_WIDTH = 7
+	ld c, a
+	sla a
+	add a, c
+	add a, d
+	ld d, a
+	ld ix, name_input_arrow_down
+	ld b, NM_IPT_ARROW_HEIGHT
+	;call put_sprite_xor
+	;ret
+	jp put_sprite_xor
+

@@ -1,0 +1,66 @@
+﻿;
+; main.z80
+;
+; Copyright (c) 2017 Zach Peltzer
+; Subject to the MIT License
+;
+
+.nolist
+#include "ti83plus.inc"
+#include "keys.inc"
+#include "tiinv.inc"
+.list
+
+.org userMem - 2
+.db t2ByteTok, tAsmCmp
+
+    jp main
+#include "menu.z80"
+
+#include "string.z80"
+#include "graphics.z80"
+
+#include "game.z80"
+#include "scoreboard.z80"
+#include "name_input.z80"
+#include "sprite.z80"
+#include "cannon.z80"
+#include "invader.z80"
+#include "level.z80"
+
+main:
+    BCALL(_runIndicOff)
+    xor a ; so that the MSB of r is 0 for random numbers
+    ld r, a
+
+    set textWrite, (iy + sGrFlags) ; write text to buffer, not screen
+    ld (iy + TIINV_FLAGS), 0
+
+    BCALL(_clrScrnFull)
+    BCALL(_grBufClr)
+
+    call menu
+    bit exit_flag, (iy + TIINV_FLAGS)
+    jr nz, exit
+
+    call game_start
+    bit exit_flag, (iy + TIINV_FLAGS)
+    jr nz, exit
+    jr main
+
+exit:
+    res textWrite, (iy + sGrFlags) ; put back for TIOS
+    BCALL(_grBufClr)
+    BCALL(_clrScrnFull)
+    BCALL(_homeUp)
+    BCALL(_dispDone)
+    ei
+    ret
+
+; call (or jp) from anywhere to set the flag
+; which is checked at appropriate points
+quit:
+    set exit_flag, (iy + TIINV_FLAGS)
+    ret
+
+.end

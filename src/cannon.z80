@@ -1,0 +1,256 @@
+;
+; cannon.z80
+;
+; Copyright (c) 2017 Zach Peltzer
+; Subject to the MIT License
+;
+
+CANNON_INIT_X .equ 41
+CANNON_INIT_Y .equ 54
+CANNON_WIDTH .equ 7
+
+CANNON_SHOT_START .equ appBackUpScreen
+NUM_CANNON_SHOTS .equ 54
+CANNON_SHOT_END .equ CANNON_SHOT_START + (2 * NUM_CANNON_SHOTS)
+
+; number of frames between each update of the shots
+CANNON_SHOT_TIME .equ 20
+
+CANNON_DEAD_TIME .equ 50
+
+cannon_pos_y:
+    .db CANNON_INIT_Y
+cannon_pos_x:
+    .db CANNON_INIT_X
+
+cannon_shot_index:
+    .dw CANNON_SHOT_START
+cannon_shot_timer:
+    .db 1
+
+cannon_dead_timer:
+    .db 0
+
+cannon_reset:
+    res cannon_dead_flag, (iy + TIINV_FLAGS)
+    ld h, CANNON_INIT_X
+    ld l, CANNON_INIT_Y
+    ld (cannon_pos_y), hl
+    ld a, 1
+    ld (cannon_shot_timer), a
+    ret
+
+cannon_move_left:
+    bit cannon_dead_flag, (iy + TIINV_FLAGS)
+    ret nz
+    ld a, (cannon_pos_x)
+    or a
+    ret z ; if x == 0
+    dec a
+    ld (cannon_pos_x), a
+    ret
+
+cannon_move_right:
+	bit cannon_dead_flag, (iy + TIINV_FLAGS)
+	ret nz
+	ld a, (cannon_pos_x)
+	cp 95 - CANNON_WIDTH
+	ret z ; if x == 80 (end)
+	inc a
+	ld (cannon_pos_x), a
+	ret
+
+cannon_fire:
+	bit cannon_dead_flag, (iy + TIINV_FLAGS)
+	ret nz
+
+	ld a, (cannon_shot_timer)
+    or a
+	ret nz ; if the timer has not finished
+	ld a, CANNON_SHOT_TIME ; reset otherwise
+	ld (cannon_shot_timer), a
+
+	ld hl, CANNON_SHOT_END
+	ld de, (cannon_shot_index)
+	or a
+	sbc hl, de
+	jr nz, _cannon_fire_no_wrap
+	ld hl, CANNON_SHOT_START
+	ld (cannon_shot_index), hl
+_cannon_fire_no_wrap:
+	ld a, (cannon_pos_y)
+	dec a
+	ld e, a
+	ld a, (cannon_pos_x)
+	add a, CANNON_WIDTH / 2
+	ld d, a
+	ld hl, (cannon_shot_index)
+	ld (hl), d
+	inc hl
+	ld (hl), e
+    inc hl
+    ld (cannon_shot_index), hl
+    ret
+
+
+; Test if (x, y) is in the box containing the cannon. The collision detection
+; assumes that if the point is in the box, it hits the cannon.
+; d = x
+; e = y
+; ret c is set if the cannon is hit and reset if not
+cannon_hit:
+    ld hl, (cannon_pos_y)
+_canh_test_horiz:
+    ; if x < this.x
+    ld a, d
+    cp h
+    jr c, _cannon_hit_end
+    ; if x >= this.x + w
+    ld a, h
+    add a, CANNON_WIDTH
+    cp d
+    jr c, _cannon_hit_end
+_canh_test_vert:
+    ; if y < this.y
+    ld a, e
+    cp l
+    jr c, _cannon_hit_end
+    ; if y >= this.y + h
+    ld a, l
+    add a, SPRITE_HEIGHT
+    cp e
+    jr c, _cannon_hit_end	
+_canh_is_hit:
+    ; kill by setting the position
+
+    call level_lose_life
+_cannon_hit_end:
+    ret
+
+
+cannon_shots_clear:
+	ld b, NUM_CANNON_SHOTS
+	ld hl, CANNON_SHOT_START
+_csclr_loop:
+	ld (hl), DEAD_POS
+	inc hl
+	ld (hl), DEAD_POS
+	inc hl
+	djnz _csclr_loop
+_cannon_shots_clear_end:
+	ret
+
+
+cannon_shot_update:
+	ld b, NUM_CANNON_SHOTS
+	ld hl, CANNON_SHOT_START
+_csu_loop:
+	push bc
+	ld a, (hl) ; do not decrement y if dead
+	cp DEAD_POS
+	jr nz, _csu_valid
+	inc hl
+	jr _csu_loop_cont
+_csu_valid:
+	; if y >= 0: check_col
+	inc hl
+	dec (hl)
+	ld a, (hl)
+	cp HEADER_HEIGHT
+	jr nz, _csu_check_col
+	; else, set dead
+	dec hl
+	ld (hl), DEAD_POS
+	inc hl
+	ld (hl), DEAD_POS
+	jr _csu_loop_cont
+_csu_check_col:
+    ; if test_pixel_pss(x, y): 
+	dec hl
+	ld d, (hl)
+	inc hl
+	ld e, (hl)
+	push hl
+        push de
+            call test_pixel_pss
+        pop de
+        ; if pixel is on, then
+        jr nz, _csu_collide
+	pop hl ; from previous push hl
+	jr _csu_loop_cont
+
+_csu_collide:
+        ; remove the invader if one was hit
+        call invade_hit
+        ; remove the shot, whatever it hit
+	pop hl
+	dec hl
+	ld (hl), DEAD_POS
+	inc hl
+	ld (hl), DEAD_POS
+_csu_loop_cont:
+	inc hl
+	pop bc
+	djnz _csu_loop
+_cannon_shot_update_end:
+	ret
+
+
+cannon_update:
+	bit cannon_dead_flag, (iy + TIINV_FLAGS)
+	ret z ; if not dead
+	bit game_over_flag, (iy + TIINV_FLAGS)
+	ret nz ; if game_over
+	; else
+	ld a, (cannon_dead_timer)
+	dec a
+	;call z, level_new_cannon then return
+	jp z, level_new_cannon
+	ld (cannon_dead_timer), a
+	ret
+
+
+cannon_render:
+	ld de, (cannon_pos_y)
+	ld a, d
+	ld c, 0 ; default offset
+	bit cannon_dead_flag, (iy + TIINV_FLAGS)
+	jr z, _cr_no_destroyed
+	ld c, 6 ; destroyed cannon offset
+_cr_no_destroyed:
+	ld ix, cannon_sprite
+	;call si_put_sprite
+	;ret
+	jp si_put_sprite
+
+cannon_shot_render:
+	ld b, NUM_CANNON_SHOTS
+	ld hl, CANNON_SHOT_START
+_ssr_loop:
+	ld d, (hl)
+	inc hl
+	ld e, (hl)
+	inc hl
+	ld a, e
+	cp DEAD_POS; if the shot has stuck something or gone off the screen, do not display
+	jr z, _ssr_loop_cont ; if dead
+_ssr_valid:
+	push hl
+        call get_pixel
+        ld de, plotSScreen
+        add hl, de
+        ld c, a	; store bitmap
+        xor (hl) ; render shot position
+        ld (hl), a
+        ld de, 12 ; render space below shot position for visibility
+        add hl, de
+        ld a, c
+        or (hl)
+        ld (hl), a
+	pop hl
+_ssr_loop_cont:
+	djnz _ssr_loop
+_ssr_loop_end:
+_cannon_shot_render_end:
+	ret
+

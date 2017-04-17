@@ -1,0 +1,520 @@
+;
+; invader.z80
+;
+; Copyright (c) 2017 Zach Peltzer
+; Subject to the MIT License
+;
+
+INVADE_NUM_ROW .equ 4
+INVADE_NUM_COL .equ 8
+
+INVADE_POS_START .equ CANNON_SHOT_END
+NUM_INVADE .equ INVADE_NUM_ROW * INVADE_NUM_COL
+INVADE_POS_END .equ INVADE_POS_START + (4 * NUM_INVADE)
+
+INVADE_DET_PER_INC .equ 4 ; number destroyed per speed increase
+
+INVADE_MAX_X .equ 8
+INVADE_MIN_PERIOD .equ 0
+
+INVADE_INIT_X .equ 0
+INVADE_INIT_DX .equ 1
+INVADE_INIT_MOVE_PERIOD .equ 30
+INVADE_INIT_SHOT_PROB	.equ 3
+
+INVADE_SHOT_START .equ INVADE_POS_END
+NUM_INVADE_SHOTS .equ 54
+INVADE_SHOT_END .equ INVADE_SHOT_START + (2 * NUM_INVADE_SHOTS)
+
+INVADE_REACHED_BOTTOM .equ 64 - 16
+
+; arbitrary value indicating how far the block has moved to the side
+invade_pos_x:
+	.db INVADE_INIT_X ;  positive -> right, negative -> left
+invade_dir_x:
+	.db INVADE_INIT_DX
+
+; number of invaders destroyed in the current level
+invade_num_det:
+	.db 0
+
+; index in memory to add the next invader
+invade_pos_index:
+	.dw INVADE_POS_START
+
+; counter used to determine when to increment the movement frequency
+; incremented every time an invader is destroyed, but is reset every time
+; it reaches IVNADE_DET_PER_INC
+invade_speed_count:
+	.db 0
+
+; 0 -> frame 1. 16 -> frame 2
+invade_frame:
+	.db 0
+; in frames per move
+invade_move_period:
+	.db INVADE_INIT_MOVE_PERIOD
+; in frames
+invade_timer:
+	.db 1
+
+invade_shot_index:
+	.dw INVADE_SHOT_START
+; relates to the probability that an invader will fire on each frame
+; $00 to $7f -> 0 to 1 probability
+invade_shot_prob:
+	.db INVADE_INIT_SHOT_PROB
+
+
+; d = x
+; e = y
+; (ix) = invader sprite
+invade_new:
+	push de
+	; if invade_pos_index == INVADE_POS_END
+	ld hl, INVADE_POS_END
+	ld de, (invade_pos_index)
+	or a
+	sbc hl, de
+	pop de
+	ret z
+	
+	ld hl, (invade_pos_index)
+	ld (hl), d
+	inc hl
+	ld (hl), e
+	inc hl
+	ld a, ixl
+	ld (hl), a
+	inc hl
+	ld a, ixh
+	ld (hl), a
+	inc hl
+	ld (invade_pos_index), hl
+	ret
+
+
+; Choses a random column and has the lowest invader in the column
+; fire. If the column is empty, no shot is fired
+invade_fire:
+	ld h, 0
+	; column of invaders to fire
+	ld a, (rand)
+	ld l, a
+	ld a, INVADE_NUM_COL
+	BCALL(_DivHLByA) ; a = remainder = r mod(cols)
+
+	; start at bottom of row: last location
+	ld c, INVADE_NUM_COL * (INVADE_NUM_ROW - 1)
+	add a, c
+	; 4 bytes per structure
+	sla a
+	sla a
+	ld d, 0
+	ld e, a
+
+	; add de to get to correct invader
+	ld hl, INVADE_POS_START 
+	add hl, de
+
+	ld de, 4 * INVADE_NUM_COL ; move back this much to next invader in col
+	ld b, 2
+
+	; do while ix > INVADE_POS_START
+_invfire_loop:
+	; get coordinates
+	ld a, (hl)
+	cp DEAD_POS ; do not shoot if no invader
+	jr nz, _invfire_valid
+	or a
+	sbc hl, de
+	djnz _invfire_loop
+	ret ; if the loop finishes without jumping to _invfire_valid
+
+_invfire_valid:
+	ld d, a ; (hl+0)
+	inc hl
+	ld e, (hl)
+	inc hl
+	ld c, (hl)
+	inc hl
+	ld b, (hl)
+
+	; adjust position so that he shot comes from the middle of the invader
+	ld a, (bc) ; x += width / 2
+	srl a
+	add a, d
+	ld d, a
+	ld a, SPRITE_HEIGHT ; y += height
+	add a, e
+	ld e, a
+
+	; add new shot to buffer
+	ld hl, INVADE_SHOT_END
+	ld bc, (invade_shot_index)
+	or a
+	sbc hl, bc
+	jr nz, _invfire_no_wrap
+	; else wrap to beginning of buffer
+	ld hl, INVADE_SHOT_START
+	ld (invade_shot_index), hl
+_invfire_no_wrap:
+	ld hl, (invade_shot_index)
+	ld (hl), d
+	inc hl
+	ld (hl), e
+	inc hl
+	ld (invade_shot_index), hl
+_invade_fire_end:
+	ret
+
+
+; Tests if an invader's box contains x, y. If it does, then remove the
+; invader. Assumes that if the point is in the box, then it hits the invader.
+; d = x
+; e = y
+invade_hit:
+	; loop through each invader
+	ld b, NUM_INVADE
+	ld ix, INVADE_POS_START
+_invh_loop:
+	push bc
+	; test if the index is displayed
+	ld h, (ix)
+	inc ix
+	ld l, (ix)
+	inc ix
+	ld a, l
+	cp DEAD_POS
+	jr nz, _invh_valid
+_invh_invalid:
+	; move past sprite location
+	inc ix
+	inc ix
+	jr _invh_loop_cont
+_invh_valid:
+	; c = width of sprite
+	ld c, (ix)
+	inc ix
+	ld b, (ix)
+	inc ix
+	ld a, (bc)
+	ld c, a
+_invh_test_horiz:
+	; if x < inv.x
+	ld a, d
+	cp h
+	jr c, _invh_loop_cont
+	; if x >= inv.x + w
+	ld a, h
+	add a, c
+	cp d
+	jr c, _invh_loop_cont
+_invh_test_vert:
+	; if y < inv.y
+	ld a, e
+	cp l
+	jr c, _invh_loop_cont
+	; if y >= inv.y + h
+	ld a, l
+	add a, SPRITE_HEIGHT
+	cp e
+	jr c, _invh_loop_cont
+_invh_is_hit:
+	; remove invader
+	ld (ix-4), DEAD_POS
+	ld (ix-3), DEAD_POS
+
+	; add another to the number destroyed
+	ld a, (invade_num_det)
+	inc a
+	ld (invade_num_det), a
+
+	; add points
+	ld l, (ix-2)
+	ld h, (ix-1)
+	push ix
+	call level_add_points
+	pop ix
+	; add another to the counter
+	ld a, (invade_speed_count)
+	inc a
+	ld (invade_speed_count), a
+_invh_loop_cont:
+	pop bc
+	djnz _invh_loop
+_invade_hit_end:
+	ret
+
+
+invade_shots_clear:
+	ld b, NUM_INVADE_SHOTS
+	ld hl, INVADE_SHOT_START
+_isclr_loop:
+	ld (hl), DEAD_POS
+	inc hl
+	ld (hl), DEAD_POS
+	inc hl
+	djnz _isclr_loop
+_invade_shots_clear_end:
+	ret
+
+
+invade_reset:
+	ld a, INVADE_INIT_X
+	ld (invade_pos_x), a
+	ld a, INVADE_INIT_DX
+	ld (invade_dir_x), a
+	ld a, INVADE_INIT_MOVE_PERIOD
+	ld (invade_move_period), a
+	ld a, INVADE_INIT_SHOT_PROB
+	ld (invade_shot_prob), a
+	xor a
+	ld (invade_frame), a
+
+	ld hl, INVADE_POS_START
+	ld (invade_pos_index), hl
+	ret
+
+
+; Gets a random number from $80 to $ff (from the r register). If the number is less than
+; invade_shot_prob, then invade_fire is called.
+; Checks the move timer. If it has not finished, the ships are not updated.
+; If the ship block is at the right or left most position, then it is moved down
+; otherwise, it is moved in the direction of ivnade_dir_x
+invade_update:
+	; Decide whether to fire
+	ld a, (invade_shot_prob)
+	ld c, a
+	ld a, r
+	cp c
+	call c, invade_fire
+
+	; check timer
+	ld a, (invade_timer)
+	dec a
+	ld (invade_timer), a
+	ret nz ; timer has not been spent
+	; reset timer
+	ld a, (invade_move_period)
+	ld (invade_timer), a
+	; switch frame
+	ld a, (invade_frame)
+	add a, 6
+	cp 12
+	jr nz, _iu_frame_2
+_iu_frame_1:
+	xor a
+_iu_frame_2:
+
+	ld (invade_frame), a
+
+	; if 4 are destroyed, then increase the
+	; frequency of movement (by decreasing the period)
+_iu_frequency:
+	ld a, (invade_speed_count)
+	;cp INVADE_DET_PER_INC
+	;jr c, _iu_no_freq_inc
+	bit 2, a ; since INVADE_DET_PER_INC is 4
+	jr z, _iu_no_freq_inc
+	; reset destroyed counter
+	xor a
+	ld (invade_speed_count), a
+	ld a, (invade_move_period)
+	dec a
+	jr z, _iu_no_freq_inc
+	ld (invade_move_period), a
+_iu_no_freq_inc:
+
+	; for i = INVADE_POS_START to INVADE_POS_END
+	ld b, NUM_INVADE
+	ld hl, INVADE_POS_START
+
+	ld a, (invade_pos_x)
+	cp INVADE_MAX_X
+	jr z, _iu_down
+	;jr _iu_horiz
+
+_iu_horiz:
+	; update position
+	ld a, (invade_pos_x)
+	inc a ; position is more of a counter
+	ld (invade_pos_x), a
+_iu_horiz_loop:
+	ld a, (hl)
+	cp DEAD_POS ; if the invader is gone
+	jr z, __iuh_loop_cont
+__iuh_valid:
+	ld d, (hl)
+	ld a, (invade_dir_x)
+	add a, d
+	ld (hl), a
+__iuh_loop_cont:
+	inc hl
+	inc hl
+	inc hl
+	inc hl
+	djnz _iu_horiz_loop
+	ret
+	;jr _iu_end
+
+_iu_down:
+	; reset horizontal position
+	xor a
+	ld (invade_pos_x), a
+	; reverse horizontal direction
+	ld a, (invade_dir_x)
+	neg
+	ld (invade_dir_x), a
+_iu_down_loop:
+	ld a, (hl)
+	cp DEAD_POS ; if the invader is gone
+	jr z, __iud_loop_cont
+__iud_valid:
+	inc hl
+	inc (hl)
+	inc (hl)
+	ld a, (hl)
+	cp INVADE_REACHED_BOTTOM
+	call nc, level_game_over
+
+	dec hl ; back to initial position
+	;jr __iud_loop_cont
+__iud_loop_cont:
+	inc hl ; move to next one
+	inc hl
+	inc hl
+	inc hl
+	djnz _iu_down_loop
+	; jr _invade_update_end
+
+_invade_update_end:
+	ret
+
+
+; Moves each shot downward
+invade_shot_update:
+	ld b, NUM_INVADE_SHOTS
+	ld hl, INVADE_SHOT_START
+_isu_loop:
+	push bc
+	ld a, (hl) ; do not increment y if dead
+	cp DEAD_POS
+	jr nz, _isu_valid
+	inc hl
+	jr _isu_loop_cont
+_isu_valid:
+	; if y != 62 (window height): check_col
+	inc hl
+	inc (hl)
+	ld a, (hl)
+	cp 62
+	jr nz, _isu_check_col
+	; else, set dead
+	dec hl
+	ld (hl), DEAD_POS
+	inc hl
+	ld (hl), DEAD_POS
+	jr _isu_loop_cont
+_isu_check_col:
+    ; if test_pixel_pss(x, y): 
+	dec hl
+	ld d, (hl)
+	inc hl
+	ld e, (hl)
+	push hl
+	push de
+        call test_pixel_pss
+	pop de
+	; if pixel is on, then
+	jr nz, _isu_collide
+	pop hl ; from previous push hl
+	jr _isu_loop_cont
+_isu_collide:
+	; remove the invader if one was hit
+	call cannon_hit
+	pop hl
+	; remove the shot whatever it hit
+	dec hl
+	ld (hl), DEAD_POS
+	inc hl
+	ld (hl), DEAD_POS
+_isu_loop_cont:
+	inc hl
+	pop bc
+	djnz _isu_loop
+_invade_shot_update_end:
+	ret
+
+
+; Draws each non-dead invader in the array
+invade_render:
+	ld b, NUM_INVADE
+	ld hl, INVADE_POS_START
+_ir_loop:
+	ld d, (hl)
+	inc hl
+	ld e, (hl)
+	inc hl
+	ld a, e
+	cp DEAD_POS ; if the invader has been hit, do not display
+	jr nz, _ir_valid ; if not dead
+_invade_redner_invalid:
+	inc hl
+	inc hl
+	djnz _ir_loop ; if dead, continue
+	jr _ir_loop_end ; break
+_ir_valid:
+	ld a, (hl)
+	ld ixl, a
+	inc hl
+	ld a, (hl)
+	ld ixh, a
+	inc hl
+	push bc
+	push hl
+	; set offset
+	ld a, (invade_frame)
+	ld c, a
+	call si_put_sprite
+	pop hl
+	pop bc
+	djnz _ir_loop
+_ir_loop_end:
+_invade_render__end:
+	ret
+
+
+; Draws each live shot and the pixel above it for visibility
+invade_shot_render:
+	ld b, NUM_INVADE_SHOTS
+	ld hl, INVADE_SHOT_START
+_isr_loop:
+	ld d, (hl)
+	inc hl
+	ld e, (hl)
+	inc hl
+	ld a, e
+	cp DEAD_POS; if the shot has stuck something or gone off the screen, do not display
+	jr z, _isr_loop_cont ; if dead
+_isr_valid:
+	push hl
+        call get_pixel
+        ld de, plotSScreen
+        add hl, de
+        ld c, a	; store bitmap
+        or (hl) ; render shot position
+        ld (hl), a
+        ld de, 12 ; render space above shot position for visibility
+        or a
+        sbc hl, de
+        ld a, c
+        or (hl)
+        ld (hl), a
+	pop hl
+_isr_loop_cont:
+	djnz _isr_loop
+_isr_loop_end:
+_invade_shot_render_end:
+	ret
+

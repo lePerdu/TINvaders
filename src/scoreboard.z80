@@ -1,0 +1,256 @@
+;
+; scoreboard.z80
+;
+; Copyright (c) 2017 Zach Peltzer
+; Subject to the MIT License
+;
+
+SCORE_NUM .equ 5
+SCORE_SPAN .equ 5 ; 2 byte numbers + 3 char name
+SCORE_SIZE .equ 4 + SCORE_SPAN * SCORE_NUM
+
+; in storage
+SCORE_NAME_OFFSET .equ 2
+
+SCORE_X .equ 28
+SCORE_Y .equ 12
+SCORE_HEIGHT .equ 8
+
+; in str_scoreboard_buf
+SCORE_BUF_SCORE .equ 8
+SCORE_BUF_NAME .equ 3
+
+SCORE_DATA_OFFSET .equ 6
+
+; first number can be incremented for next score
+str_scoreboard_buf:
+	.db "0  AAA  00000", 0
+
+appvar_name:
+	.db appVarObj, "TIINVHS", 0
+
+score_app_var:
+	.dw $0000
+
+
+; c flag set if the score is added, reset otherwise
+scoreboard_check:
+	ld hl, appvar_name
+	BCALL(_mov9ToOp1)
+	BCALL(_chkFindSym)
+	jp c, scoreboard_create
+	ld a, b
+	or a
+	jr z, _sb_no_unarchive
+_sb_unarchive:
+	BCALL(_arc_unarc)
+_sb_no_unarchive:
+	ld (score_app_var), de
+	ex de, hl
+	inc hl ; move past length
+	inc hl
+	ld a, 'S'
+	cp (hl)
+	jp nz, scoreboard_create
+	inc hl
+	ld a, 'I'
+	cp (hl)
+	jp nz, scoreboard_create
+	inc hl
+	ld a, 'N'
+	cp (hl)
+	jp nz, scoreboard_create
+	inc hl
+	ld a, 'V'
+	cp (hl)
+	jp nz, scoreboard_create
+	inc hl
+
+
+scoreboard_search:
+	ld de, (score_app_var)
+	ld hl, SCORE_DATA_OFFSET
+	add hl, de
+	ld de, (score)
+	ld b, SCORE_NUM
+_sbs_loop:
+	ld a, (hl)
+	inc hl
+	cp e
+	ld a, (hl)
+	inc hl
+	sbc a, d
+	jr c, _sbs_add_score
+_sbs_loop_cont:
+	inc hl ; move past name
+	inc hl
+	inc hl
+	djnz _sbs_loop
+	or a ; reset carry
+	ret
+_sbs_add_score:
+	; bc = 5b - 4 =
+	; whole length - 1 index because of hl/de offset + 1 just 'cus
+	ld a, b
+	sla a
+	sla a
+	add a, b
+	add a, -4
+	ld b, 0
+	ld c, a
+	
+	ex de, hl
+	; de += 5b - 3 = end of app var =
+	; move back over score (-3) and goto end (+5b)
+	inc a
+	inc a
+	add a, e
+	ld e, a
+	ld a, 0
+	adc a, d
+	ld d, a
+	
+	ld h, d
+	ld l, e
+	dec hl ; move 1 index back
+	dec hl
+	dec hl
+	dec hl
+	dec hl
+	lddr ; copy backwards
+	inc hl; hl = location of current score - 1 (dec hl in lddr)
+	ld a, (score)
+	ld (hl), a
+	inc hl
+	ld a, (score+1)
+	ld (hl), a
+	inc hl
+	push hl
+	call name_input
+	pop ix ; address to put name
+	ld hl, name_input_buf
+	ld a, (hl)
+	ld (ix), a
+	inc hl
+	ld a, (hl)
+	ld (ix+1), a
+	inc hl
+	ld a, (hl)
+	ld (ix+2), a
+_sbs_end:
+	scf
+	ret
+
+
+scoreboard_create:
+	ld hl, appvar_name
+	BCALL(_mov9ToOp1)
+	BCALL(_chkFindSym)
+	jr c, _sbc_no_delete
+	BCALL(_delVar)
+_sbc_no_delete:
+	ld hl, SCORE_SIZE
+	BCALL(_createAppVar)
+	ld (score_app_var), de
+	inc de
+	inc de
+	ld a, 'S'
+	ld (de), a
+	inc de
+	ld a, 'I'
+	ld (de), a
+	inc de
+	ld a, 'N'
+	ld (de), a
+	inc de
+	ld a, 'V'
+	ld (de), a
+	inc de
+	ld b, SCORE_NUM
+_sbc_loop:
+	xor a ; 0 all scores
+	ld (de), a
+	inc de
+	ld (de), a
+	inc de
+	
+	ld a, '_' ; fill names with '_'
+	ld (de), a
+	inc de
+	ld (de), a
+	inc de
+	ld (de), a
+	inc de
+	djnz _sbc_loop
+
+	ld de, (score_app_var)
+	jp scoreboard_search
+
+scoreboard_display:
+	BCALL(_grBufClr)
+	ld hl, appvar_name
+	BCALL(_mov9ToOp1)
+	BCALL(_chkFindSym)
+	ld (score_app_var), de
+	ld hl, str_scoreboard_buf ; reset buffer
+	ld a, '0'
+	ld (hl), a
+	ld de, SCORE_DATA_OFFSET
+	ld ix, (score_app_var)
+	add ix, de
+_sbd_loop:
+	; put score in buffer
+	ld a, (ix)
+	ld e, a
+	ld a, (ix+1)
+	ld d, a
+	ld hl, str_scoreboard_buf + SCORE_BUF_SCORE
+	call to_str_udec16
+	call to_nbts
+	ld hl, str_scoreboard_buf
+	inc (hl)
+	ld a, (hl)
+	cp '0' + SCORE_NUM + 1
+	jr z, _sbd_end
+
+	; put name in buffer
+	ld hl, str_scoreboard_buf + SCORE_BUF_NAME
+	ld a, (ix + SCORE_NAME_OFFSET)
+	ld (hl), a
+	inc hl
+	ld a, (ix + SCORE_NAME_OFFSET + 1)
+	ld (hl), a
+	inc hl
+	ld a, (ix + SCORE_NAME_OFFSET + 2)
+	ld (hl), a
+
+	; render buffer
+	ld de, SCORE_Y * $100 + SCORE_X
+	ld a, (str_scoreboard_buf) ; index
+	sub '1' ; so that '1' will be at SCORE_Y
+	sla a ; SCORE_HEIGHT = 8
+	sla a
+	sla a
+	add a, d
+	ld d, a
+	ld (penCol), de
+	ld hl, str_scoreboard_buf
+	BCALL(_vPutS)
+	inc ix ; move to next index (+5)
+	inc ix
+	inc ix
+	inc ix
+	inc ix
+	jr _sbd_loop
+_sbd_end:
+	call safe_copy_pss
+	ei
+	BCALL(_getKey)
+	cp kClear
+	jp z, quit
+	cp kQuit
+	jp z, quit
+	
+_sbd_done:
+	ret
+
