@@ -1,5 +1,5 @@
 ;
-; tiinv.inc
+; tinvaders.inc
 ;
 ; Copyright (c) 2017 Zach Peltzer
 ; Subject to the MIT License

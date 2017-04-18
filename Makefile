@@ -8,7 +8,7 @@
 src=./src
 inc=./inc
 bin=./bin
-output=$(bin)/TIINV.8xp
+output=$(bin)/TINVADER.8xp
 
 all: $(output)
 

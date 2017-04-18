@@ -1,4 +1,4 @@
-# TI Invaders
+# TINvaders
 
 This is a clone of the archaic arcade game "Space Invaders" for TI-83 series
 calculators.
@@ -6,16 +6,16 @@ calculators.
 
 ## Controls
 
-RIGHT/LEFT - Move
-2ND - Fire
-CLEAR - Exit
+* RIGHT/LEFT - Move
+* 2ND - Fire
+* CLEAR - Exit
 
 
 ## Scoring
 
-Bottom invaders: 10 points
-Middle invaders: 20 points
-Top invaders: 40 points
+* Bottom invaders: 10 points
+* Middle invaders: 20 points
+* Top invaders: 40 points
 
 
 ## Building

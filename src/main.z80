@@ -8,7 +8,7 @@
 .nolist
 #include "ti83plus.inc"
 #include "keys.inc"
-#include "tiinv.inc"
+#include "tinvaders.inc"
 .list
 
 .org userMem - 2

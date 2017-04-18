@@ -27,7 +27,7 @@ SEL_SPRITE_HEIGHT .equ 5
 
 
 menu_text:
-    .db  0, CENTER_COL(41), " TI  Invaders",0
+    .db  0, CENTER_COL(35), " TINvaders",0
     .db 10, 16, "Start Game",0
     .db 18, 16, "High Scores",0
     .db 26, 16, "Instructions",0
@@ -223,12 +223,12 @@ _msi_end:
 
 about_text:
     .db  0, CENTER_COL(19), " About",0
-    .db 10, CENTER_COL(55), "TI  Invaders  v1.0",0
+    .db 10, CENTER_COL(50), "TINvaders  v1.0",0
     .db 20, CENTER_COL(60), "Copyright (c) 2017",0
     .db 27, CENTER_COL(42), "Zach Peltzer",0
     .db 34, CENTER_COL(70), "Under the MIT License",0
     .db 44, CENTER_COL(85), "Fork on GitHub: github.com",0
-    .db 51, CENTER_COL(79), "/lePerdu/tiinvaders.git",0
+    .db 51, CENTER_COL(80), "/lePerdu/TINvaders.git",0
 ABOUT_NUM_ENTRIES .equ 7
 
 menu_sel_about:
